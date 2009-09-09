@@ -227,10 +227,10 @@ clutter_stage_egl_get_preferred_width (ClutterActor *self,
   ClutterStageEGL *stage_egl = CLUTTER_STAGE_EGL (self);
 
   if (min_width_p)
-    *min_width_p = CLUTTER_UNITS_FROM_DEVICE (stage_egl->surface_width);
+    *min_width_p = stage_egl->surface_width;
 
   if (natural_width_p)
-    *natural_width_p = CLUTTER_UNITS_FROM_DEVICE (stage_egl->surface_width);
+    *natural_width_p = stage_egl->surface_width;
 }
 
 static void
@@ -242,10 +242,10 @@ clutter_stage_egl_get_preferred_height (ClutterActor *self,
   ClutterStageEGL *stage_egl = CLUTTER_STAGE_EGL (self);
 
   if (min_height_p)
-    *min_height_p = CLUTTER_UNITS_FROM_DEVICE (stage_egl->surface_height);
+    *min_height_p = stage_egl->surface_height;
 
   if (natural_height_p)
-    *natural_height_p = CLUTTER_UNITS_FROM_DEVICE (stage_egl->surface_height);
+    *natural_height_p = stage_egl->surface_height;
 }
 
 static void

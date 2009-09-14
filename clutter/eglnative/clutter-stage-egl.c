@@ -18,39 +18,35 @@
 #include "../clutter-stage.h"
 #include "../clutter-stage-window.h"
 
+#include <fcntl.h> /* for open() */
+
 static void clutter_stage_window_iface_init (ClutterStageWindowIface *iface);
 
 G_DEFINE_TYPE_WITH_CODE (ClutterStageEGL,
                          clutter_stage_egl,
-                         CLUTTER_TYPE_ACTOR,
+                         G_TYPE_OBJECT,
                          G_IMPLEMENT_INTERFACE (CLUTTER_TYPE_STAGE_WINDOW,
                                                 clutter_stage_window_iface_init));
 
 static void
-clutter_stage_egl_show (ClutterActor *actor)
+clutter_stage_egl_show (ClutterStageWindow *stage_window,
+                        gboolean            do_raise)
 {
-  CLUTTER_ACTOR_SET_FLAGS (actor, CLUTTER_ACTOR_MAPPED);
-  CLUTTER_ACTOR_SET_FLAGS (CLUTTER_STAGE_EGL (actor)->wrapper,
-                           CLUTTER_ACTOR_MAPPED);
+        ClutterStageEGL *stage_egl = CLUTTER_STAGE_EGL (stage_window);
+        clutter_actor_map (CLUTTER_ACTOR (stage_egl->wrapper));
 }
-
 static void
-clutter_stage_egl_hide (ClutterActor *actor)
+clutter_stage_egl_hide (ClutterStageWindow *stage_window)
 {
-  CLUTTER_ACTOR_UNSET_FLAGS (actor, CLUTTER_ACTOR_MAPPED);
-  CLUTTER_ACTOR_UNSET_FLAGS (CLUTTER_STAGE_EGL (actor)->wrapper,
-                             CLUTTER_ACTOR_MAPPED);
+        ClutterStageEGL *stage_egl = CLUTTER_STAGE_EGL (stage_window);
+        clutter_actor_unmap (CLUTTER_ACTOR (stage_egl->wrapper));
 }
-
 static void
-clutter_stage_egl_unrealize (ClutterActor *actor)
+clutter_stage_egl_unrealize (ClutterStageWindow *stage_window)
 {
-  ClutterStageEGL *stage_egl = CLUTTER_STAGE_EGL (actor);
+  ClutterStageEGL *stage_egl = CLUTTER_STAGE_EGL (stage_window);
 
   CLUTTER_MARK();
-
-  if (CLUTTER_ACTOR_CLASS (clutter_stage_egl_parent_class)->unrealize != NULL)
-    CLUTTER_ACTOR_CLASS (clutter_stage_egl_parent_class)->unrealize (actor);
 
   if (stage_egl->egl_surface)
     {
@@ -59,16 +55,16 @@ clutter_stage_egl_unrealize (ClutterActor *actor)
     }
 }
 
-static void
-clutter_stage_egl_realize (ClutterActor *actor)
+static gboolean
+clutter_stage_egl_realize (ClutterStageWindow *stage_window)
 {
-  ClutterStageEGL     *stage_egl = CLUTTER_STAGE_EGL (actor);
+  ClutterStageEGL     *stage_egl = CLUTTER_STAGE_EGL (stage_window);
   ClutterBackendEGL   *backend_egl;
   EGLConfig            configs[2];
   EGLint               config_count;
   EGLBoolean           status;
   gboolean             is_offscreen;
-
+  //clutter_debug_flags = CLUTTER_DEBUG_PAINT|CLUTTER_DEBUG_ACTOR|CLUTTER_DEBUG_GL|CLUTTER_DEBUG_BACKEND;
   CLUTTER_NOTE (BACKEND, "Realizing main stage");
 
   g_object_get (stage_egl->wrapper, "offscreen", &is_offscreen, NULL);
@@ -98,9 +94,8 @@ clutter_stage_egl_realize (ClutterActor *actor)
 
       if (status != EGL_TRUE)
         {
-	  g_critical ("eglGetConfigs failed");
-          CLUTTER_ACTOR_UNSET_FLAGS (actor, CLUTTER_ACTOR_REALIZED);
-          return;
+                g_critical ("eglGetConfigs failed %x",eglGetError());
+          return FALSE;
         }
 
       status = eglChooseConfig (backend_egl->edpy,
@@ -112,8 +107,7 @@ clutter_stage_egl_realize (ClutterActor *actor)
       if (status != EGL_TRUE)
         {
           g_critical ("eglChooseConfig failed");
-          CLUTTER_ACTOR_UNSET_FLAGS (actor, CLUTTER_ACTOR_REALIZED);
-          return;
+          return FALSE;
         }
 
       CLUTTER_NOTE (BACKEND, "Got %i configs", config_count); 
@@ -130,35 +124,27 @@ clutter_stage_egl_realize (ClutterActor *actor)
             backend_egl->egl_context = NULL;
          }
 
-      stage_egl->egl_surface =
-	eglCreateWindowSurface (backend_egl->edpy,
+       stage_egl->egl_surface =
+        eglCreateWindowSurface (backend_egl->edpy,
                                 configs[0],
-                                NULL,
+                                (NativeWindowType)NULL,
                                 NULL);
-
+      if (stage_egl->egl_surface == EGL_NO_SURFACE)
+        {  /* AMD GPU driver need a valid fd to framebuffer device */
+          stage_egl->egl_surface =
+            eglCreateWindowSurface (backend_egl->edpy,
+                                    configs[0],
+                                    (NativeWindowType)open("/dev/fb0",O_RDWR),
+                                    NULL);
+        }
+      
       if (stage_egl->egl_surface == EGL_NO_SURFACE)
         {
 	  g_critical ("Unable to create an EGL surface");
 
-          CLUTTER_ACTOR_UNSET_FLAGS (actor, CLUTTER_ACTOR_REALIZED);
-          return;
+          return FALSE;
         }
 
-      eglQuerySurface (backend_egl->edpy,
-		       stage_egl->egl_surface,
-		       EGL_WIDTH,
-		       &stage_egl->surface_width);
-
-      eglQuerySurface (backend_egl->edpy,
-		       stage_egl->egl_surface,
-		       EGL_HEIGHT,
-		       &stage_egl->surface_height);
-
-      CLUTTER_NOTE (BACKEND, "EGL surface is %ix%i", 
-		    stage_egl->surface_width,
-                    stage_egl->surface_height);
-
-      
       if (G_UNLIKELY (backend_egl->egl_context == NULL))
         {
 #ifdef HAVE_COGL_GLES2
@@ -181,8 +167,7 @@ clutter_stage_egl_realize (ClutterActor *actor)
             {
               g_critical ("Unable to create a suitable EGL context");
 
-              CLUTTER_ACTOR_UNSET_FLAGS (actor, CLUTTER_ACTOR_REALIZED);
-              return;
+              return FALSE;
             }
 
           CLUTTER_NOTE (GL, "Created EGL Context");
@@ -200,59 +185,51 @@ clutter_stage_egl_realize (ClutterActor *actor)
         {
           g_critical ("eglMakeCurrent failed");
           
-          CLUTTER_ACTOR_UNSET_FLAGS (actor, CLUTTER_ACTOR_REALIZED);
-          return;
+          return FALSE;
         }
+
+      eglQuerySurface (backend_egl->edpy,
+		       stage_egl->egl_surface,
+		       EGL_WIDTH,
+		       &stage_egl->surface_width);
+
+      eglQuerySurface (backend_egl->edpy,
+		       stage_egl->egl_surface,
+		       EGL_HEIGHT,
+		       &stage_egl->surface_height);
+
+      CLUTTER_NOTE (BACKEND, "EGL surface is %ix%i", 
+		    stage_egl->surface_width,
+                    stage_egl->surface_height);
 
       /* since we only have one size and it cannot change, we
        * just need to update the GL viewport now that we have
        * been realized
        */
-      CLUTTER_SET_PRIVATE_FLAGS (actor, CLUTTER_ACTOR_SYNC_MATRICES);
+      clutter_stage_ensure_viewport (CLUTTER_STAGE (stage_egl->wrapper));
+      clutter_actor_queue_relayout (CLUTTER_ACTOR (stage_egl->wrapper));
     }
   else
     {
       g_warning ("EGL Backend does not yet support offscreen rendering\n");
-      CLUTTER_ACTOR_UNSET_FLAGS (actor, CLUTTER_ACTOR_REALIZED);
-      return;
+      return FALSE;
     }
+  return TRUE;
 }
 
 static void
-clutter_stage_egl_get_preferred_width (ClutterActor *self,
-                                       gfloat        for_height,
-                                       gfloat       *min_width_p,
-                                       gfloat       *natural_width_p)
+clutter_stage_egl_get_geometry (ClutterStageWindow *stage_window,
+                                ClutterGeometry    *geometry)
 {
-  ClutterStageEGL *stage_egl = CLUTTER_STAGE_EGL (self);
+  ClutterStageEGL *stage_egl = CLUTTER_STAGE_EGL (stage_window);
+  
+  geometry->width = stage_egl->surface_width;
+  geometry->height = stage_egl->surface_height;
 
-  if (min_width_p)
-    *min_width_p = CLUTTER_UNITS_FROM_DEVICE (stage_egl->surface_width);
-
-  if (natural_width_p)
-    *natural_width_p = CLUTTER_UNITS_FROM_DEVICE (stage_egl->surface_width);
 }
-
-static void
-clutter_stage_egl_get_preferred_height (ClutterActor *self,
-                                        gfloat        for_width,
-                                        gfloat       *min_height_p,
-                                        gfloat       *natural_height_p)
-{
-  ClutterStageEGL *stage_egl = CLUTTER_STAGE_EGL (self);
-
-  if (min_height_p)
-    *min_height_p = CLUTTER_UNITS_FROM_DEVICE (stage_egl->surface_height);
-
-  if (natural_height_p)
-    *natural_height_p = CLUTTER_UNITS_FROM_DEVICE (stage_egl->surface_height);
-}
-
 static void
 clutter_stage_egl_dispose (GObject *gobject)
 {
-  ClutterStageEGL *stage_egl = CLUTTER_STAGE_EGL (gobject);
-
   G_OBJECT_CLASS (clutter_stage_egl_parent_class)->dispose (gobject);
 }
 
@@ -260,16 +237,8 @@ static void
 clutter_stage_egl_class_init (ClutterStageEGLClass *klass)
 {
   GObjectClass      *gobject_class = G_OBJECT_CLASS (klass);
-  ClutterActorClass *actor_class   = CLUTTER_ACTOR_CLASS (klass);
 
   gobject_class->dispose = clutter_stage_egl_dispose;
-
-  actor_class->show                 = clutter_stage_egl_show;
-  actor_class->hide                 = clutter_stage_egl_hide;
-  actor_class->realize              = clutter_stage_egl_realize;
-  actor_class->unrealize            = clutter_stage_egl_unrealize;
-  actor_class->get_preferred_width  = clutter_stage_egl_get_preferred_width;
-  actor_class->get_preferred_height = clutter_stage_egl_get_preferred_height;
 }
 
 static void
@@ -292,6 +261,11 @@ clutter_stage_window_iface_init (ClutterStageWindowIface *iface)
   iface->set_fullscreen = clutter_stage_egl_set_fullscreen;
   iface->set_title = NULL;
   iface->get_wrapper = clutter_stage_egl_get_wrapper;
+  iface->get_geometry = clutter_stage_egl_get_geometry;
+  iface->show = clutter_stage_egl_show;
+  iface->hide = clutter_stage_egl_hide;
+  iface->realize = clutter_stage_egl_realize;
+  iface->unrealize = clutter_stage_egl_unrealize;
 }
 
 static void

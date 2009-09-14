@@ -87,14 +87,14 @@ clutter_backend_egl_redraw (ClutterBackend *backend,
   eglSwapBuffers (backend_egl->edpy,  stage_egl->egl_surface);
 }
 
-static ClutterActor *
+static ClutterStageWindow *
 clutter_backend_egl_create_stage (ClutterBackend  *backend,
                                   ClutterStage    *wrapper,
                                   GError         **error)
 {
-  ClutterBackendEGL *backend_egl = CLUTTER_BACKEND_EGL (backend);
-  ClutterStageEGL   *stage_egl;
-  ClutterActor      *stage;
+  ClutterBackendEGL  *backend_egl = CLUTTER_BACKEND_EGL (backend);
+  ClutterStageEGL    *stage_egl;
+  ClutterStageWindow *stage_window;
 
   if (backend_egl->stage)
     {
@@ -102,15 +102,15 @@ clutter_backend_egl_create_stage (ClutterBackend  *backend,
       return backend_egl->stage;
     }
 
-  stage = g_object_new (CLUTTER_TYPE_STAGE_EGL, NULL);
+  stage_window = g_object_new (CLUTTER_TYPE_STAGE_EGL, NULL);
 
-  stage_egl = CLUTTER_STAGE_EGL (stage);
+  stage_egl = CLUTTER_STAGE_EGL (stage_window);
   stage_egl->backend = backend_egl;
   stage_egl->wrapper = wrapper;
 
-  backend_egl->stage = CLUTTER_ACTOR (stage_egl);
+  backend_egl->stage = CLUTTER_STAGE_WINDOW (stage_egl);
 
-  return stage;
+  return stage_window;
 }
 
 static void

@@ -52,7 +52,7 @@ struct _ClutterBackendEGL
   gint       egl_version_minor;
 
   /* main stage singleton */
-  ClutterActor *stage;
+  ClutterStageWindow *stage;
 
   /* event source */
   GSource *event_source;

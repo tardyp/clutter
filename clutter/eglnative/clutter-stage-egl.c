@@ -18,6 +18,8 @@
 #include "../clutter-stage.h"
 #include "../clutter-stage-window.h"
 
+#include <fcntl.h> /* for open() */
+
 static void clutter_stage_window_iface_init (ClutterStageWindowIface *iface);
 
 G_DEFINE_TYPE_WITH_CODE (ClutterStageEGL,
@@ -27,19 +29,20 @@ G_DEFINE_TYPE_WITH_CODE (ClutterStageEGL,
                                                 clutter_stage_window_iface_init));
 
 static void
-clutter_stage_egl_show (ClutterActor *actor)
+clutter_stage_egl_show (ClutterStageWindow *stage_window,
+                        gboolean            do_raise)
 {
-  CLUTTER_ACTOR_SET_FLAGS (actor, CLUTTER_ACTOR_MAPPED);
-  CLUTTER_ACTOR_SET_FLAGS (CLUTTER_STAGE_EGL (actor)->wrapper,
-                           CLUTTER_ACTOR_MAPPED);
+  ClutterStageEGL *stage_egl = CLUTTER_STAGE_EGL (stage_window);
+  clutter_actor_map (CLUTTER_ACTOR (stage_egl));
+  clutter_actor_map (CLUTTER_ACTOR (stage_egl->wrapper));
 }
 
 static void
-clutter_stage_egl_hide (ClutterActor *actor)
+clutter_stage_egl_hide (ClutterStageWindow *stage_window)
 {
-  CLUTTER_ACTOR_UNSET_FLAGS (actor, CLUTTER_ACTOR_MAPPED);
-  CLUTTER_ACTOR_UNSET_FLAGS (CLUTTER_STAGE_EGL (actor)->wrapper,
-                             CLUTTER_ACTOR_MAPPED);
+  ClutterStageEGL *stage_egl = CLUTTER_STAGE_EGL (stage_window);
+  clutter_actor_unmap (CLUTTER_ACTOR (stage_egl));
+  clutter_actor_unmap (CLUTTER_ACTOR (stage_egl->wrapper));
 }
 
 static void
@@ -133,9 +136,17 @@ clutter_stage_egl_realize (ClutterActor *actor)
       stage_egl->egl_surface =
 	eglCreateWindowSurface (backend_egl->edpy,
                                 configs[0],
-                                NULL,
+                                (NativeWindowType)NULL,
                                 NULL);
-
+      if (stage_egl->egl_surface == EGL_NO_SURFACE)
+        {  /* AMD GPU driver need a valid fd to framebuffer device */
+           stage_egl->egl_surface =
+              eglCreateWindowSurface (backend_egl->edpy,
+                                      configs[0],
+                                      (NativeWindowType)open("/dev/fb0",O_RDWR),
+                                      NULL);
+        }
+              
       if (stage_egl->egl_surface == EGL_NO_SURFACE)
         {
 	  g_critical ("Unable to create an EGL surface");
@@ -144,19 +155,6 @@ clutter_stage_egl_realize (ClutterActor *actor)
           return;
         }
 
-      eglQuerySurface (backend_egl->edpy,
-		       stage_egl->egl_surface,
-		       EGL_WIDTH,
-		       &stage_egl->surface_width);
-
-      eglQuerySurface (backend_egl->edpy,
-		       stage_egl->egl_surface,
-		       EGL_HEIGHT,
-		       &stage_egl->surface_height);
-
-      CLUTTER_NOTE (BACKEND, "EGL surface is %ix%i", 
-		    stage_egl->surface_width,
-                    stage_egl->surface_height);
 
       
       if (G_UNLIKELY (backend_egl->egl_context == NULL))
@@ -203,6 +201,20 @@ clutter_stage_egl_realize (ClutterActor *actor)
           CLUTTER_ACTOR_UNSET_FLAGS (actor, CLUTTER_ACTOR_REALIZED);
           return;
         }
+
+      eglQuerySurface (backend_egl->edpy,
+		       stage_egl->egl_surface,
+		       EGL_WIDTH,
+		       &stage_egl->surface_width);
+
+      eglQuerySurface (backend_egl->edpy,
+		       stage_egl->egl_surface,
+		       EGL_HEIGHT,
+		       &stage_egl->surface_height);
+
+      CLUTTER_NOTE (BACKEND, "EGL surface is %ix%i", 
+		    stage_egl->surface_width,
+                    stage_egl->surface_height);
 
       /* since we only have one size and it cannot change, we
        * just need to update the GL viewport now that we have
@@ -264,8 +276,6 @@ clutter_stage_egl_class_init (ClutterStageEGLClass *klass)
 
   gobject_class->dispose = clutter_stage_egl_dispose;
 
-  actor_class->show                 = clutter_stage_egl_show;
-  actor_class->hide                 = clutter_stage_egl_hide;
   actor_class->realize              = clutter_stage_egl_realize;
   actor_class->unrealize            = clutter_stage_egl_unrealize;
   actor_class->get_preferred_width  = clutter_stage_egl_get_preferred_width;
@@ -292,6 +302,8 @@ clutter_stage_window_iface_init (ClutterStageWindowIface *iface)
   iface->set_fullscreen = clutter_stage_egl_set_fullscreen;
   iface->set_title = NULL;
   iface->get_wrapper = clutter_stage_egl_get_wrapper;
+  iface->show                 = clutter_stage_egl_show;
+  iface->hide                 = clutter_stage_egl_hide;
 }
 
 static void

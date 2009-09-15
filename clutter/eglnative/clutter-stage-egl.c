@@ -18,8 +18,6 @@
 #include "../clutter-stage.h"
 #include "../clutter-stage-window.h"
 
-#include <fcntl.h> /* for open() */
-
 static void clutter_stage_window_iface_init (ClutterStageWindowIface *iface);
 
 G_DEFINE_TYPE_WITH_CODE (ClutterStageEGL,
@@ -136,16 +134,8 @@ clutter_stage_egl_realize (ClutterActor *actor)
       stage_egl->egl_surface =
 	eglCreateWindowSurface (backend_egl->edpy,
                                 configs[0],
-                                (NativeWindowType)NULL,
+                                backend_egl->native_window,
                                 NULL);
-      if (stage_egl->egl_surface == EGL_NO_SURFACE)
-        {  /* AMD GPU driver need a valid fd to framebuffer device */
-           stage_egl->egl_surface =
-              eglCreateWindowSurface (backend_egl->edpy,
-                                      configs[0],
-                                      (NativeWindowType)open("/dev/fb0",O_RDWR),
-                                      NULL);
-        }
               
       if (stage_egl->egl_surface == EGL_NO_SURFACE)
         {

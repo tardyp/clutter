@@ -8,6 +8,8 @@
 #include "../clutter-main.h"
 #include "../clutter-debug.h"
 
+#include <fcntl.h> /* for open() */
+
 static ClutterBackendEGL *backend_singleton = NULL;
 
 
@@ -24,6 +26,22 @@ static gboolean
 clutter_backend_egl_pre_parse (ClutterBackend  *backend,
                                GError         **error)
 {
+  const gchar *env_string;
+  ClutterBackendEGL *backend_egl = CLUTTER_BACKEND_EGL(backend);
+
+  env_string = g_getenv ("CLUTTER_FBDEV");
+  if (env_string)
+    {
+      backend_egl->native_window = (NativeWindowType)open(env_string,O_RDWR);
+      if (backend_egl->native_window<0)
+        {
+          g_set_error (error, CLUTTER_INIT_ERROR,
+                       CLUTTER_INIT_ERROR_BACKEND,
+                       "Unable to open FBDEV file");
+          return FALSE;
+        }
+    }
+
   return TRUE;
 }
 

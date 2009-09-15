@@ -47,6 +47,7 @@ struct _ClutterBackendEGL
   EGLDisplay edpy;
   EGLSurface egl_surface;
   EGLContext egl_context;
+  NativeWindowType native_window;
 
   gint       egl_version_major;
   gint       egl_version_minor;
